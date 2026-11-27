@@ -50,6 +50,10 @@ def sans(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
     return _font(["seguisb.ttf" if bold else "segoeui.ttf", "segoeuib.ttf", "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf"], size)
 
 
+def symbol(size: int) -> ImageFont.FreeTypeFont:
+    return _font(["seguisym.ttf", "DejaVuSans-Bold.ttf"], size)
+
+
 def mono(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
     return _font(["consolab.ttf" if bold else "consola.ttf", "DejaVuSansMono-Bold.ttf" if bold else "DejaVuSansMono.ttf"], size)
 
@@ -249,7 +253,8 @@ def scene_green(data: dict) -> Callable:
         terminal(d, (1060, 170, 1830, 820), "terminal", lines, 30)
         if t > 2.2:
             f = sans(120, True)
-            d.text((1210, 560), "✔ green", font=f, fill=GREEN)
+            d.text((1150, 575), "✔", font=symbol(110), fill=GREEN)
+            d.text((1290, 560), "green", font=f, fill=GREEN)
         if t > 3.5:
             caption(d, "Tests pass. Looks safe, right?")
         return img
@@ -328,7 +333,7 @@ def scene_selfhosted(t: float, total: float) -> Image.Image:
         ok = t > appear + 0.7
         d.ellipse([x + 30, y + 30, x + 85, y + 85], fill=GREEN if ok else FAINT)
         if ok:
-            d.text((x + 42, y + 28), "✓", font=sans(44, True), fill=(8, 30, 12))
+            d.text((x + 41, y + 26), "✓", font=symbol(44), fill=(8, 30, 12))
         d.text((x + 115, y + 18), step, font=sans(38, True), fill=FG)
         d.text((x + 115, y + 68), detail, font=mono(26), fill=CYAN)
     if t > 0.8 + 5 * 1.3 + 0.8:
@@ -443,25 +448,112 @@ def scene_close(t: float, total: float) -> Image.Image:
     return img
 
 
+def toggle(d: ImageDraw.ImageDraw, x: int, y: int, on: float, scale: float = 1.0) -> None:
+    """An iOS-style switch; ``on`` animates from 0 (off) to 1 (on)."""
+    w, h = int(150 * scale), int(80 * scale)
+    col = tuple(int(FAINT[i] + (GREEN[i] - FAINT[i]) * on) for i in range(3))
+    d.rounded_rectangle([x, y, x + w, y + h], radius=h // 2, fill=col)
+    r = h - int(14 * scale)
+    cx = x + int(7 * scale) + int((w - r - 14 * scale) * on)
+    d.ellipse([cx, y + int(7 * scale), cx + r, y + int(7 * scale) + r], fill=(250, 250, 252))
+
+
+def scene_explain_switch(t: float, total: float) -> Image.Image:
+    img, d = canvas()
+    center(d, 60, "Feature flags, in 20 seconds", sans(54, True), FG)
+    # the app
+    flip = ease((t - 3.2) / 0.6)
+    dark = flip > 0.5
+    px, py = 250, 200
+    d.rounded_rectangle([px, py, px + 420, py + 720], radius=48, fill=(30, 30, 36), outline=(90, 90, 100), width=4)
+    scr = (24, 26, 34) if dark else (244, 245, 248)
+    ink = FG if dark else (30, 32, 40)
+    d.rounded_rectangle([px + 22, py + 60, px + 398, py + 690], radius=26, fill=scr)
+    d.text((px + 60, py + 110), "My Shop", font=sans(52, True), fill=ink)
+    for i, label in enumerate(["Shoes", "Bags", "Watches"]):
+        d.rounded_rectangle([px + 60, py + 220 + i * 120, px + 360, py + 310 + i * 120], radius=18, fill=(46, 50, 62) if dark else (226, 229, 236))
+        d.text((px + 90, py + 245 + i * 120), label, font=sans(36), fill=ink)
+    d.text((px + 70, py + 730), "your app, live for users", font=sans(30), fill=DIM)
+    # the switch in the middle
+    d.text((800, 330), "dark_mode", font=mono(44, True), fill=FG)
+    toggle(d, 830, 400, flip, 1.3)
+    d.text((1035, 412), "ON" if dark else "OFF", font=sans(48, True), fill=GREEN if dark else DIM)
+    if t > 1.0:
+        d.text((760, 560), "A feature flag is a switch", font=sans(40, True), fill=FG)
+        d.text((760, 612), "inside your app.", font=sans(40, True), fill=FG)
+        d.text((760, 680), "Flip it: the feature changes for real", font=sans(32), fill=DIM)
+        d.text((760, 722), "users instantly. No new code shipped.", font=sans(32), fill=DIM)
+    # Flagsmith remote
+    if t > 6.0:
+        a = ease((t - 6.0) / 0.6)
+        rx = 1400 + int(80 * (1 - a))
+        d.rounded_rectangle([rx, 220, rx + 420, 860], radius=30, fill=(26, 24, 44), outline=PURPLE, width=4)
+        d.text((rx + 40, 250), "Flagsmith", font=sans(52, True), fill=PURPLE)
+        d.text((rx + 40, 320), "the remote control", font=sans(30), fill=DIM)
+        for i, (name, state) in enumerate([("dark_mode", flip), ("new_search", 0.0), ("checkout", 1.0)]):
+            yy = 410 + i * 140
+            d.text((rx + 40, yy + 12), name, font=mono(30, True), fill=FG)
+            toggle(d, rx + 260, yy, state, 0.8)
+    return img
+
+
+SPLIT = [("classic", 60, (88, 166, 255)), ("one page", 30, (63, 205, 95)), ("express", 10, (255, 84, 84))]
+
+
+def scene_explain_split(t: float, total: float) -> Image.Image:
+    img, d = canvas()
+    center(d, 50, "Flags can also split users between versions", sans(50, True), FG)
+    colours = [c for _, n, c in SPLIT for _ in range(n)]
+    shown = int(100 * ease((t - 1.0) / 4.5))
+    x0, y0, cell = 260, 170, 74
+    for i in range(100):
+        r, c = divmod(i, 10)
+        x, y = x0 + c * cell, y0 + r * cell
+        col = colours[i] if i < shown else (40, 44, 56)
+        d.ellipse([x + 14, y + 4, x + 46, y + 36], fill=col)  # head
+        d.rounded_rectangle([x + 6, y + 38, x + 54, y + 66], radius=14, fill=col)  # body
+    lx = 1110
+    for i, (name, n, col) in enumerate(SPLIT):
+        if shown < sum(m for _, m, _ in SPLIT[: i + 1]) - n + 1:
+            continue
+        yy = 230 + i * 130
+        d.rounded_rectangle([lx, yy, lx + 60, yy + 60], radius=14, fill=col)
+        d.text((lx + 90, yy - 2), f"{n} shoppers", font=sans(46, True), fill=FG)
+        d.text((lx + 90, yy + 52), f"see the {name} checkout", font=sans(30), fill=DIM)
+        if t > total * 0.62:
+            tested = name != "express"
+            col2 = GREEN if tested else RED
+            d.text((lx + 470, yy + 2), "✓" if tested else "✗", font=symbol(44), fill=col2)
+            d.text((lx + 520, yy + 4), "tested" if tested else "NEVER tested", font=sans(38, True), fill=col2)
+    if t > total * 0.62:
+        caption(d, "The tests only tried the versions someone remembered.")
+    return img
+
+
 NARRATION = {
     "hook": "In twenty twelve, a trading firm called Knight Capital lost four hundred and forty million dollars... in forty-five minutes. "
-            "The cause? A reused feature flag, that switched on old code no test had run in years.",
-    "title": "We all measure line coverage. Nobody measures flag coverage. So I built FlagCov, on top of open-source Flagsmith.",
-    "green": "Here's a small shop. Its checkout is a Flagsmith flag, with three variants, and a special path for enterprise customers. "
-             "The tests are green. Looks safe.",
-    "reveal": "Now, the same tests, with one extra option. FlagCov records every flag the tests read, and compares it with what Flagsmith "
-              "is actually serving in production. ... Ten percent of real checkouts go through express. Not a single test has ever run it. "
-              "Enterprise customers get an untested path too. And the code reads a flag that doesn't even exist in Flagsmith.",
-    "crash": "FlagCov doesn't just complain. It writes the missing tests. I paste one in, add a single assert, and run it. ... "
-             "Crash. Division by zero, for one in ten customers. Our green test suite would never have caught it.",
-    "selfhosted": "And this isn't a mock. On every push, CI boots the official open-source Flagsmith image, seeds it through Flagsmith's own API, "
-                  "and FlagCov reads the live environment document. The real weights. The real segment rules.",
-    "dogfood": "Then, I pointed it at Flagsmith itself. Six hundred and ninety of Flagsmith's own tests, with FlagCov switched on. "
-               "Three flags are only ever tested switched on, while the defaults Flagsmith ships have them switched off.",
-    "pr": "In a real team, you'd see it right on the pull request. It focuses on the flags that change touches, "
-          "shows how much production traffic is untested, and hands you the tests to paste.",
-    "close": "Line coverage tells you what your code ran. Flag coverage tells you what your users will run. "
-             "FlagCov. Open source, built on self-hosted Flagsmith, and one pip install away.",
+            "The cause? An old switch in their software got flipped, and it turned on code nobody had tested in years.",
+    "title": "We all check how much of our code is tested. Nobody checks how much of our feature flags are tested. So I built FlagCov.",
+    "explain_switch": "Quick explainer, in case flags are new to you. A feature flag is a switch inside your app. "
+                      "Flip it, and a feature turns on or off for real users, instantly, without shipping new code. "
+                      "Flagsmith is the remote control your team uses to flip those switches.",
+    "explain_split": "And switches can do more than on and off. Imagine a hundred shoppers. Flagsmith shows sixty of them the classic checkout, "
+                     "thirty a one-page checkout, and ten a brand new express checkout. ... Here's the catch. "
+                     "The tests only tried the versions someone remembered. Nobody ever checked express.",
+    "green": "Here's that shop. The tests are green. Everything looks safe.",
+    "reveal": "Now let's turn on FlagCov. It watches which versions the tests actually tried, and compares that with what Flagsmith "
+              "is really showing customers. ... There it is. Ten percent of real shoppers get express, and no test has ever tried it. "
+              "Big business customers get an untested version too. And the code even asks for a switch that doesn't exist.",
+    "crash": "FlagCov doesn't just warn you. It writes the missing test for you. I add one line, and run it. ... "
+             "It crashes. One in ten shoppers would have hit this bug, and our green tests never saw it coming.",
+    "selfhosted": "And this isn't a fake setup. Every time I push code, a real Flagsmith server starts up, gets filled with these switches, "
+                  "and FlagCov reads the real settings straight from it.",
+    "dogfood": "Then I tried it on Flagsmith's own code. Six hundred and ninety of their tests. "
+               "Three switches are only ever tested in the on position, but Flagsmith ships them switched off.",
+    "pr": "For a team, it shows up right on the pull request: which switches the change touches, "
+          "how many real users are untested, and the tests to paste in.",
+    "close": "Code coverage tells you what your code ran. Flag coverage tells you what your users will actually see. "
+             "FlagCov. Free, open source, and one pip install away.",
 }
 
 
@@ -514,6 +606,8 @@ def main() -> None:
     scenes = [
         Scene("hook", NARRATION["hook"], scene_hook),
         Scene("title", NARRATION["title"], scene_title),
+        Scene("explain_switch", NARRATION["explain_switch"], scene_explain_switch),
+        Scene("explain_split", NARRATION["explain_split"], scene_explain_split),
         Scene("green", NARRATION["green"], scene_green(data)),
         Scene("reveal", NARRATION["reveal"], scene_reveal(data)),
         Scene("crash", NARRATION["crash"], scene_crash(data)),
