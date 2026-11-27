@@ -1,0 +1,128 @@
+name: FlagCov - feature flag coverage
+description: Run your pytest suite with FlagCov and comment the untested Flagsmith flag states (weighted by production traffic) on the pull request.
+author: FlagCov contributors
+branding:
+  icon: flag
+  color: red
+
+inputs:
+  pytest-args:
+    description: Extra arguments for pytest (paths, -k, -n auto, ...)
+    default: ""
+  working-directory:
+    description: Directory to run pytest in
+    default: "."
+  environment-document:
+    description: Path to a Flagsmith environment document JSON. Leave empty to fetch it with api-url + server-key.
+    default: ""
+  api-url:
+    description: Flagsmith API URL (self-hosted or https://edge.api.flagsmith.com/api/v1/)
+    default: ""
+  server-key:
+    description: Server-side environment key (pass a secret). Used to fetch the live environment document.
+    default: ""
+  scan:
+    description: Source paths to scan for flag keys (space separated). Finds flags missing from Flagsmith and stale flags.
+    default: "."
+  fail-untested:
+    description: Fail if any flag sends more than this percent of its production traffic to untested code. Empty = never fail.
+    default: ""
+  comment:
+    description: Post (and keep updating) one comment on the pull request
+    default: "true"
+  focus-changed-flags:
+    description: In the PR comment, focus on flags touched by the pull request's diff
+    default: "true"
+  github-token:
+    description: Token used to comment on the pull request
+    default: ${{ github.token }}
+
+outputs:
+  state-coverage:
+    description: Percent of flag states exercised by the tests
+    value: ${{ steps.report.outputs.state_coverage }}
+  untested-traffic:
+    description: Largest share of one flag's production traffic that runs untested code
+    value: ${{ steps.report.outputs.untested_traffic }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install FlagCov
+      shell: bash
+      run: python -m pip install --quiet "${{ github.action_path }}[flagsmith]"
+
+    - name: Run tests with FlagCov
+      id: pytest
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        FLAGSMITH_API_URL: ${{ inputs.api-url }}
+        FLAGSMITH_SERVER_KEY: ${{ inputs.server-key }}
+      run: |
+        args=(--flagcov)
+        if [ -n "${{ inputs.environment-document }}" ]; then args+=(--flagcov-env "${{ inputs.environment-document }}"); fi
+        for p in ${{ inputs.scan }}; do args+=(--flagcov-scan "$p"); done
+        if [ -n "${{ inputs.fail-untested }}" ]; then args+=(--flagcov-fail-untested "${{ inputs.fail-untested }}"); fi
+        set +e
+        python -m pytest "${args[@]}" ${{ inputs.pytest-args }}
+        echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+
+    - name: Build report
+      id: report
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        FLAGSMITH_API_URL: ${{ inputs.api-url }}
+        FLAGSMITH_SERVER_KEY: ${{ inputs.server-key }}
+      run: |
+        if [ ! -f .flagcov/report.json ]; then
+          echo "FlagCov produced no report (see the test step above)." >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+        fi
+        python - <<'PY' >> "$GITHUB_OUTPUT"
+        import json
+        r = json.load(open(".flagcov/report.json"))
+        print(f"state_coverage={r['state_coverage']}")
+        print(f"untested_traffic={r['untested_traffic']}")
+        PY
+        args=(report --evaluations .flagcov/evaluations.json --format md)
+        if [ -n "${{ inputs.environment-document }}" ]; then args+=(--env "${{ inputs.environment-document }}"); fi
+        for p in ${{ inputs.scan }}; do args+=(--scan "$p"); done
+        if [ "${{ inputs.focus-changed-flags }}" = "true" ] && [ -n "${{ github.base_ref }}" ]; then
+          git fetch --quiet --depth=100 origin "${{ github.base_ref }}" || true
+          args+=(--diff-base "origin/${{ github.base_ref }}")
+        fi
+        flagcov "${args[@]}" > .flagcov/comment.md || cp .flagcov/report.md .flagcov/comment.md
+        cat .flagcov/comment.md >> "$GITHUB_STEP_SUMMARY"
+        echo "has_comment=true" >> "$GITHUB_OUTPUT"
+
+    - name: Comment on the pull request
+      if: inputs.comment == 'true' && github.event_name == 'pull_request' && steps.report.outputs.has_comment == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        PR: ${{ github.event.pull_request.number }}
+        REPO: ${{ github.repository }}
+      run: |
+        { echo "<!-- flagcov -->"; cat .flagcov/comment.md; } > .flagcov/comment-body.md
+        existing=$(gh api "repos/$REPO/issues/$PR/comments" --paginate --jq '.[] | select(.body | startswith("<!-- flagcov -->")) | .id' | head -n1)
+        if [ -n "$existing" ]; then
+          gh api -X PATCH "repos/$REPO/issues/comments/$existing" -F body=@.flagcov/comment-body.md > /dev/null
+        else
+          gh pr comment "$PR" --repo "$REPO" --body-file .flagcov/comment-body.md
+        fi
+
+    - name: Upload report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: flagcov-report
+        path: ${{ inputs.working-directory }}/.flagcov/
+        if-no-files-found: ignore
+
+    - name: Fail on test or threshold failure
+      if: steps.pytest.outputs.exit_code != '0'
+      shell: bash
+      run: exit ${{ steps.pytest.outputs.exit_code }}

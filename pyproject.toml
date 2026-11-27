@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "flagcov"
+version = "0.1.0"
+description = "Code coverage for feature flags: find the Flagsmith flag states your tests never ran, weighted by real production traffic."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [{ name = "FlagCov contributors" }]
+keywords = ["feature-flags", "flagsmith", "openfeature", "pytest", "coverage", "testing"]
+classifiers = [
+  "Framework :: Pytest",
+  "Programming Language :: Python :: 3",
+  "Topic :: Software Development :: Testing",
+]
+dependencies = ["pytest>=7"]
+
+[project.optional-dependencies]
+openfeature = ["openfeature-sdk>=0.8"]
+flagsmith = ["flagsmith>=5", "openfeature-provider-flagsmith>=1.0"]
+dev = ["openfeature-sdk>=0.8", "flagsmith>=5", "openfeature-provider-flagsmith>=1.0", "pytest-cov", "pytest-xdist"]
+
+[project.scripts]
+flagcov = "flagcov.cli:main"
+
+[project.entry-points.pytest11]
+flagcov = "flagcov.pytest_plugin"
+
+[project.urls]
+Homepage = "https://github.com/AryanMashalkar/flagcov"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/flagcov"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-p pytester"

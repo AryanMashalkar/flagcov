@@ -1,0 +1,81 @@
+name: Self-hosted Flagsmith end-to-end
+
+# Boots the official open-source Flagsmith image, seeds it through its REST API,
+# then runs the demo shop's tests with FlagCov against the LIVE self-hosted
+# environment document, using this repository's own GitHub Action.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Start self-hosted Flagsmith (official docker-compose)
+        run: docker compose -f examples/selfhosted/docker-compose.yml up -d
+
+      - name: Seed flags, variants, segment and a server-side key
+        run: |
+          python examples/selfhosted/seed.py --api-url http://localhost:8000/api/v1/ --out .selfhosted.env
+          grep -E '^FLAGSMITH_(API_URL|SERVER_KEY)=' .selfhosted.env >> "$GITHUB_ENV"
+          echo "::add-mask::$(grep FLAGSMITH_SERVER_KEY .selfhosted.env | cut -d= -f2)"
+
+      - name: Download the live environment document
+        run: |
+          python -m pip install --quiet ".[flagsmith]"
+          flagcov fetch -o examples/demo_shop/environment.live.json
+          python - <<'PY'
+          import json
+          doc = json.load(open("examples/demo_shop/environment.live.json"))
+          print("environment:", doc["name"])
+          for fs in doc["feature_states"]:
+              mv = [(v["multivariate_feature_option"]["value"], v["percentage_allocation"]) for v in fs.get("multivariate_feature_state_values") or []]
+              print(f"  {fs['feature']['name']}: enabled={fs['enabled']} value={fs['feature_state_value']!r} variants={mv}")
+          print("segments:", [s["name"] for s in doc["project"]["segments"]])
+          PY
+
+      - name: FlagCov (this repository's action) against live self-hosted Flagsmith
+        uses: ./
+        with:
+          working-directory: examples/demo_shop
+          api-url: ${{ env.FLAGSMITH_API_URL }}
+          server-key: ${{ env.FLAGSMITH_SERVER_KEY }}
+          pytest-args: -p no:cacheprovider
+          scan: "."
+        env:
+          FLAGCOV_ENV_DOCUMENT: ${{ github.workspace }}/examples/demo_shop/environment.live.json
+
+      - name: Check the report found what it should
+        working-directory: examples/demo_shop
+        run: |
+          python - <<'PY'
+          import json
+          r = json.load(open(".flagcov/report.json"))
+          states = {(f["flag"], s["label"]): s for f in r["flags"] for s in f["states"]}
+          assert states[("checkout_flow", "express")]["covered"] is False, "express should be untested"
+          assert states[("checkout_flow", "express")]["weight"] == 10
+          assert states[("checkout_flow", "one_page")]["weight"] == 30
+          assert any(s["segment"] == "enterprise" for s in states.values()), "segment override missing"
+          assert "recommendation_v2" in r["unknown_flags"]
+          assert "legacy_promo_banner" in r["unreferenced_flags"]
+          print("Live self-hosted report verified:", r["state_coverage"], "% states covered")
+          PY
+
+      - name: Flagsmith logs on failure
+        if: failure()
+        run: docker compose -f examples/selfhosted/docker-compose.yml logs --tail=200 flagsmith

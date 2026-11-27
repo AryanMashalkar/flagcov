@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.flagcov/
+.pytest_cache/
+dist/
+build/
+*.egg-info/
+.coverage
+.selfhosted.env
+environment.live.json

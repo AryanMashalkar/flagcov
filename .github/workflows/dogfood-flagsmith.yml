@@ -1,0 +1,76 @@
+name: Dogfood - FlagCov on Flagsmith's own test suite
+
+# Runs a slice of Flagsmith's open-source API test suite (the tests around code
+# that reads flags) with FlagCov, against the environment document Flagsmith
+# commits for its own flags (api/integrations/flagsmith/data/environment.json).
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1"
+  push:
+    branches: [main]
+    paths: [".github/workflows/dogfood-flagsmith.yml", "src/**"]
+
+permissions:
+  contents: read
+
+jobs:
+  flagsmith:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: postgres:15.5-alpine
+        env: { POSTGRES_PASSWORD: password, POSTGRES_DB: flagsmith }
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U postgres" --health-interval 5s --health-retries 20
+      analytics:
+        image: postgres:15.5-alpine
+        env: { POSTGRES_PASSWORD: password, POSTGRES_DB: analytics }
+        ports: ["5433:5432"]
+        options: --health-cmd "pg_isready -U postgres" --health-interval 5s --health-retries 20
+    defaults:
+      run:
+        working-directory: flagsmith/api
+    env:
+      DOTENV_OVERRIDE_FILE: .env-ci
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: flagcov
+      - uses: actions/checkout@v4
+        with:
+          repository: Flagsmith/flagsmith
+          path: flagsmith
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+      - name: Install Flagsmith API dependencies
+        run: uv sync --frozen --extra dev
+      - name: Install FlagCov into Flagsmith's environment
+        run: uv pip install -e ../../flagcov
+      - name: Run Flagsmith's flag-related unit tests with FlagCov
+        run: |
+          set +e
+          uv run pytest -n 0 -p no:cacheprovider \
+            tests/unit/organisations tests/unit/custom_auth tests/unit/segment_membership \
+            tests/unit/environments/onboarding tests/unit/integrations/flagsmith tests/unit/app_analytics \
+            -k "not clickhouse and not influx" \
+            --flagcov --flagcov-env integrations/flagsmith/data/environment.json \
+            --flagcov-scan . --flagcov-out "$GITHUB_WORKSPACE/flagcov-flagsmith" -q
+          echo "pytest exit code: $?"
+          exit 0
+      - name: Report
+        if: always()
+        run: |
+          if [ -f "$GITHUB_WORKSPACE/flagcov-flagsmith/report.md" ]; then
+            cat "$GITHUB_WORKSPACE/flagcov-flagsmith/report.md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No report produced" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: flagcov-on-flagsmith
+          path: flagcov-flagsmith/

@@ -1,0 +1,79 @@
+{
+  "api_key": "ser.demo-shop-production",
+  "name": "Production",
+  "updated_at": "2026-11-27T09:00:00+00:00",
+  "project": {
+    "id": 1,
+    "name": "Demo Shop",
+    "segments": [
+      {
+        "id": 10,
+        "name": "enterprise",
+        "rules": [
+          {
+            "type": "ALL",
+            "conditions": [],
+            "rules": [
+              {
+                "type": "ANY",
+                "rules": [],
+                "conditions": [{"operator": "EQUAL", "property_": "plan", "value": "enterprise"}]
+              }
+            ]
+          }
+        ],
+        "feature_states": [
+          {
+            "django_id": 900,
+            "feature": {"id": 3, "name": "checkout_flow", "type": "MULTIVARIATE"},
+            "enabled": true,
+            "feature_state_value": "invoice",
+            "multivariate_feature_state_values": [],
+            "feature_segment": {"priority": 0}
+          }
+        ]
+      }
+    ]
+  },
+  "feature_states": [
+    {
+      "django_id": 101,
+      "feature": {"id": 1, "name": "dark_mode", "type": "STANDARD"},
+      "enabled": true,
+      "feature_state_value": null,
+      "multivariate_feature_state_values": []
+    },
+    {
+      "django_id": 102,
+      "feature": {"id": 2, "name": "new_search", "type": "STANDARD"},
+      "enabled": false,
+      "feature_state_value": null,
+      "multivariate_feature_state_values": []
+    },
+    {
+      "django_id": 103,
+      "feature": {"id": 3, "name": "checkout_flow", "type": "MULTIVARIATE"},
+      "enabled": true,
+      "feature_state_value": "classic",
+      "multivariate_feature_state_values": [
+        {"id": 1, "percentage_allocation": 30, "multivariate_feature_option": {"value": "one_page", "key": "one_page"}},
+        {"id": 2, "percentage_allocation": 10, "multivariate_feature_option": {"value": "express", "key": "express"}}
+      ]
+    },
+    {
+      "django_id": 104,
+      "feature": {"id": 4, "name": "free_shipping_threshold", "type": "STANDARD"},
+      "enabled": true,
+      "feature_state_value": 499,
+      "multivariate_feature_state_values": []
+    },
+    {
+      "django_id": 105,
+      "feature": {"id": 5, "name": "legacy_promo_banner", "type": "STANDARD"},
+      "enabled": true,
+      "feature_state_value": null,
+      "multivariate_feature_state_values": []
+    }
+  ],
+  "identity_overrides": []
+}
