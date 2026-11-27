@@ -314,7 +314,7 @@ PROOF = ROOT / "docs" / "proof"
 _shots: dict[str, Image.Image] = {}
 
 
-def proof(img: Image.Image, name: str, box: tuple[int, int, int, int], t: float, label: str) -> Image.Image:
+def proof(img: Image.Image, name: str, box: tuple[int, int, int, int], t: float, label: str, crop: tuple[float, float, float, float] | None = None) -> Image.Image:
     """Paste a REAL github.com screenshot (docs/proof) into ``box`` with a slow zoom and a 'real' badge."""
     path = PROOF / name
     if not path.exists():
@@ -322,6 +322,9 @@ def proof(img: Image.Image, name: str, box: tuple[int, int, int, int], t: float,
     if name not in _shots:
         _shots[name] = Image.open(path).convert("RGB")
     shot = _shots[name]
+    if crop:
+        cw, ch = shot.size
+        shot = shot.crop((int(crop[0] * cw), int(crop[1] * ch), int(crop[2] * cw), int(crop[3] * ch)))
     x0, y0, x1, y1 = box
     bw, bh = x1 - x0, y1 - y0
     zoom = 1.0 + 0.04 * min(t, 6) / 6
@@ -370,7 +373,7 @@ def scene_selfhosted(t: float, total: float) -> Image.Image:
     if t > 4.8:
         img, d = canvas()
         center(d, 40, "The real run, on github.com", sans(48, True), FG)
-        img = proof(img, "selfhosted-run.png", (160, 130, 1760, 920), t - 4.8, "REAL  ·  self-hosted Flagsmith in CI")
+        img = proof(img, "selfhosted-run.png", (160, 130, 1760, 920), t - 4.8, "REAL  ·  self-hosted Flagsmith in CI", crop=(0.0, 0.2, 1.0, 0.66))
         d = ImageDraw.Draw(img)
         caption(d, "Flagsmith is the source of truth. FlagCov asks the question.")
     return img
@@ -408,7 +411,7 @@ def scene_dogfood(t: float, total: float) -> Image.Image:
     if t > 8.2:
         img, d = canvas()
         center(d, 40, "690 of Flagsmith's own tests, on github.com", sans(48, True), FG)
-        img = proof(img, "dogfood-run.png", (160, 130, 1760, 920), t - 8.2, "REAL  ·  Flagsmith's own test suite")
+        img = proof(img, "dogfood-run.png", (160, 130, 1760, 920), t - 8.2, "REAL  ·  Flagsmith's own test suite", crop=(0.0, 0.2, 1.0, 0.66))
     return img
 
 
@@ -556,26 +559,26 @@ def scene_explain_split(t: float, total: float) -> Image.Image:
 NARRATION = {
     "hook": "In twenty twelve, a trading firm called Knight Capital lost four hundred and forty million dollars... in forty-five minutes. "
             "The cause? An old switch in their software got flipped, and it turned on code nobody had tested in years.",
-    "title": "We all check how much of our code is tested. Nobody checks how much of our feature flags are tested. So I built Flag-cov.",
+    "title": "We all check how much of our code is tested. Nobody checks how much of our feature flags are tested. So I built Flagkov.",
     "explain_switch": "Quick explainer. A feature flag is a switch inside your app. Flip it in Flagsmith, "
                       "and real users see the change instantly. No new code shipped.",
     "explain_split": "Switches can do more than on and off. Imagine a hundred shoppers. Flagsmith shows sixty of them the classic checkout, "
                      "thirty a one-page checkout, and ten a brand new express checkout. ... Here's the catch. "
                      "The tests only tried the versions someone remembered. Nobody ever checked express.",
     "green": "Here's that shop. The tests are green. Everything looks safe.",
-    "reveal": "Now let's turn on Flag-cov. It watches which versions the tests actually tried, and compares that with what Flagsmith "
+    "reveal": "Now let's turn on Flagkov. It watches which versions the tests actually tried, and compares that with what Flagsmith "
               "is really showing customers. ... There it is. Ten percent of real shoppers get express, and no test has ever tried it. "
               "Big business customers get an untested version too. And the code even asks for a switch that doesn't exist.",
-    "crash": "Flag-cov doesn't just warn you. It writes the missing test for you. I add one line, and run it. ... "
+    "crash": "Flagkov doesn't just warn you. It writes the missing test for you. I add one line, and run it. ... "
              "It crashes. One in ten shoppers would have hit this bug, and our green tests never saw it coming.",
     "selfhosted": "And this isn't a fake setup. Every time I push code, a real, self-hosted Flagsmith server starts up, gets filled with these switches, "
-                  "and Flag-cov reads the real settings straight from it. That's the actual run, on GitHub.",
-    "dogfood": "Then I tried it on Flagsmith's own code. Six hundred and ninety of their tests. "
+                  "and Flagkov reads the real settings straight from it. That's the actual run, on GitHub.",
+    "dogfood": "Then I tried it on the Flagsmith repository itself. Six hundred and ninety of its tests. "
                "Three switches are only ever tested in the on position. But in the default settings, those same switches are off.",
     "pr": "For a team, it shows up right on the pull request. This is the real comment: which switches the change touches, "
           "how many real users are untested, and the tests to paste in.",
     "close": "Code coverage tells you what your code ran. Flag coverage tells you what your users will actually see. "
-             "Flag-cov. Free, open source, and one pip install away.",
+             "Flagkov. Free, open source, and one pip install away.",
 }
 
 
@@ -667,22 +670,40 @@ def main() -> None:
                 lines += [f"file '{frame.as_posix()}'"]
                 frame_no += 1
                 prev, hold = sig, 1 / sc.fps
-            lines += [f"duration {hold:.4f}", lines[-2] if len(lines) > 1 else lines[-1]]
+            last_file = next(l for l in reversed(lines) if l.startswith("file "))
+            # ffmpeg's concat demuxer ignores the final entry's duration unless that image is listed again
+            lines += [f"duration {hold:.4f}", last_file]
             listing = tmp / f"scene{n}.txt"
             listing.write_text("\n".join(lines), encoding="utf-8")
+            # Frame-exact video per scene (no audio): N frames at 30 fps == the scene's length.
+            frames_n = round(length * 30)
             seg = tmp / f"scene{n}.mp4"
-            # Each scene is cut to exactly its narration length, so picture and voice can't drift apart.
-            cmd = [ff, "-y", "-f", "concat", "-safe", "0", "-i", str(listing)]
+            subprocess.run(
+                [ff, "-y", "-f", "concat", "-safe", "0", "-i", str(listing), "-vf", "tpad=stop_mode=clone:stop_duration=30,fps=30,format=yuv420p",
+                 "-frames:v", str(frames_n), "-an", "-c:v", "libx264", "-preset", "medium", "-crf", "20", str(seg)],
+                check=True, capture_output=True,
+            )
+            segments.append((seg, mp3, frames_n / 30))
+            if os.environ.get("FLAGCOV_DEBUG"):
+                got = subprocess.run([ff, "-i", str(seg), "-map", "0:v", "-f", "null", "-"], capture_output=True, text=True).stderr
+                print(f"    {sc.name}: wanted {frames_n} frames, got {re.findall(r'frame= *([0-9]+)', got)[-1]}")
+        # Video: stream-copy the frame-exact segments. Audio: each clip padded/trimmed to exactly its scene length.
+        vlist = tmp / "video.txt"
+        vlist.write_text("\n".join(f"file '{seg.as_posix()}'" for seg, _, _ in segments), encoding="utf-8")
+        video = tmp / "video.mp4"
+        subprocess.run([ff, "-y", "-f", "concat", "-safe", "0", "-i", str(vlist), "-c", "copy", str(video)], check=True, capture_output=True)
+        cmd = [ff, "-y", "-i", str(video)]
+        graph = []
+        for i, (_, mp3, secs) in enumerate(segments):
             if mp3 is not None:
-                cmd += ["-i", str(mp3), "-af", "apad", "-c:a", "aac", "-b:a", "192k", "-ar", "48000"]
+                cmd += ["-i", str(mp3)]
             else:
-                cmd += ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono", "-c:a", "aac"]
-            cmd += ["-t", f"{length:.3f}", "-vf", "fps=30,format=yuv420p", "-c:v", "libx264", "-preset", "medium", "-crf", "20", str(seg)]
-            subprocess.run(cmd, check=True, capture_output=True)
-            segments.append(seg)
-        joined = tmp / "segments.txt"
-        joined.write_text("\n".join(f"file '{s.as_posix()}'" for s in segments), encoding="utf-8")
-        subprocess.run([ff, "-y", "-f", "concat", "-safe", "0", "-i", str(joined), "-c", "copy", "-movflags", "+faststart", str(OUT)], check=True, capture_output=True)
+                cmd += ["-f", "lavfi", "-t", f"{secs:.4f}", "-i", "anullsrc=r=48000:cl=mono"]
+            graph.append(f"[{i + 1}:a]aresample=48000,apad,atrim=end={secs:.4f},asetpts=PTS-STARTPTS[a{i}]")
+        graph.append("".join(f"[a{i}]" for i in range(len(segments))) + f"concat=n={len(segments)}:v=0:a=1[a]")
+        cmd += ["-filter_complex", ";".join(graph), "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+                "-movflags", "+faststart", str(OUT)]
+        subprocess.run(cmd, check=True, capture_output=True)
     print(f"wrote {OUT} ({OUT.stat().st_size // 1024 // 1024} MB, {frame_no} unique frames)")
 
 
