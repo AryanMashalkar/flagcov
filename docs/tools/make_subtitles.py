@@ -31,44 +31,8 @@ def ts(seconds: float) -> str:
     return f"{h:02}:{m:02}:{s:02},{ms:03}"
 
 
-READABLE = {
-    "In twenty twelve": "In 2012",
-    "four hundred and forty million dollars": "$440 million",
-    "forty-five minutes": "45 minutes",
-    "Six hundred and ninety": "690",
-    "Ten percent": "10%",
-    "a hundred shoppers": "100 shoppers",
-    "sixty of them": "60 of them",
-    "thirty a one-page": "30 a one-page",
-    "and ten a brand new": "and 10 a brand new",
-    "One in ten": "1 in 10",
-    "Flagkov": "FlagCov",
-}
-
-
-def display(text: str) -> str:
-    for spoken, shown in READABLE.items():
-        text = text.replace(spoken, shown)
-    text = text.replace("...", "").replace(" .", ".")
-    return re.sub(r"\s+", " ", text).strip()
-
-
-async def sentences(text: str) -> list[tuple[float, float, str]]:
-    import edge_tts
-
-    for attempt in range(6):
-        out = []
-        try:
-            async for chunk in edge_tts.Communicate(text, mv.VOICE, rate="-4%", boundary="SentenceBoundary").stream():
-                if chunk["type"] == "SentenceBoundary":
-                    start = chunk["offset"] / 10_000_000
-                    out.append((start, start + chunk["duration"] / 10_000_000, chunk["text"]))
-            if out:
-                return out
-        except edge_tts.exceptions.NoAudioReceived:
-            pass
-        await asyncio.sleep(3 + attempt * 3)
-    raise RuntimeError("speech service returned no sentence timings")
+display = mv.display
+sentences = mv.sentences
 
 
 def scene_length(name: str) -> float:

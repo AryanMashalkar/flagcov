@@ -136,7 +136,7 @@ def center(d: ImageDraw.ImageDraw, y: int, text: str, font, fill) -> None:
 def caption(d: ImageDraw.ImageDraw, text: str) -> None:
     f = sans(36, True)
     w = d.textlength(text, font=f)
-    x, y = (W - w) / 2, H - 118
+    x, y = (W - w) / 2, H - 215
     d.rounded_rectangle([x - 28, y - 16, x + w + 28, y + 56], radius=18, fill=(20, 22, 32))
     d.rounded_rectangle([x - 28, y - 16, x + w + 28, y + 56], radius=18, outline=(70, 60, 120), width=2)
     d.text((x, y), text, font=f, fill=FG)
@@ -531,13 +531,14 @@ def scene_explain_split(t: float, total: float) -> Image.Image:
     center(d, 50, "Flags can also split users between versions", sans(50, True), FG)
     colours = [c for _, n, c in SPLIT for _ in range(n)]
     shown = int(100 * ease((t - 1.0) / 4.5))
-    x0, y0, cell = 260, 170, 74
+    x0, y0, cell = 300, 140, 64
     for i in range(100):
         r, c = divmod(i, 10)
         x, y = x0 + c * cell, y0 + r * cell
         col = colours[i] if i < shown else (40, 44, 56)
-        d.ellipse([x + 14, y + 4, x + 46, y + 36], fill=col)  # head
-        d.rounded_rectangle([x + 6, y + 38, x + 54, y + 66], radius=14, fill=col)  # body
+        k = cell / 74  # icon proportions designed for a 74px cell
+        d.ellipse([x + 14 * k, y + 4 * k, x + 46 * k, y + 36 * k], fill=col)  # head
+        d.rounded_rectangle([x + 6 * k, y + 38 * k, x + 54 * k, y + 66 * k], radius=int(14 * k), fill=col)  # body
     lx = 1110
     for i, (name, n, col) in enumerate(SPLIT):
         if shown < sum(m for _, m, _ in SPLIT[: i + 1]) - n + 1:
@@ -619,6 +620,82 @@ def duration(path: Path) -> float:
     return int(h) * 3600 + int(m) * 60 + float(s)
 
 
+READABLE = {
+    "In twenty twelve": "In 2012",
+    "four hundred and forty million dollars": "$440 million",
+    "forty-five minutes": "45 minutes",
+    "Six hundred and ninety": "690",
+    "Ten percent": "10%",
+    "a hundred shoppers": "100 shoppers",
+    "sixty of them": "60 of them",
+    "thirty a one-page": "30 a one-page",
+    "and ten a brand new": "and 10 a brand new",
+    "One in ten": "1 in 10",
+    "Flagkov": "FlagCov",
+}
+
+
+def display(text: str) -> str:
+    """Spoken narration -> how a viewer should read it (digits, the real product name)."""
+    for spoken, shown in READABLE.items():
+        text = text.replace(spoken, shown)
+    text = text.replace("...", "").replace(" .", ".")
+    return re.sub(r"\s+", " ", text).strip()
+
+
+async def sentences(text: str) -> list[tuple[float, float, str]]:
+    """Sentence timings (start, end, text) straight from the speech service, cached next to the audio."""
+    import hashlib
+
+    import edge_tts
+
+    CACHE.mkdir(exist_ok=True)
+    cached = CACHE / (hashlib.sha1(f"{VOICE}|{text}|sentences".encode()).hexdigest()[:16] + ".json")
+    if cached.exists():
+        return [tuple(x) for x in json.loads(cached.read_text(encoding="utf-8"))]
+    for attempt in range(6):
+        out = []
+        try:
+            async for chunk in edge_tts.Communicate(text, VOICE, rate="-4%", boundary="SentenceBoundary").stream():
+                if chunk["type"] == "SentenceBoundary":
+                    start = chunk["offset"] / 10_000_000
+                    out.append((start, start + chunk["duration"] / 10_000_000, chunk["text"]))
+            if out:
+                cached.write_text(json.dumps(out), encoding="utf-8")
+                return out
+        except edge_tts.exceptions.NoAudioReceived:
+            pass
+        await asyncio.sleep(3 + attempt * 3)
+    raise RuntimeError("speech service returned no sentence timings")
+
+
+def subtitle_at(cues: list[tuple[float, float, str]], t: float) -> str:
+    for i, (start, end, text) in enumerate(cues):
+        nxt = cues[i + 1][0] if i + 1 < len(cues) else end + 0.25
+        if start <= t < min(end + 0.25, nxt):
+            return display(text)
+    return ""
+
+
+def draw_subtitle(img: Image.Image, text: str) -> Image.Image:
+    """Small white text on a soft, translucent dark strip at the bottom, like a broadcast subtitle."""
+    import textwrap
+
+    f = sans(34)
+    lines = textwrap.wrap(text, 80)
+    d = ImageDraw.Draw(img)
+    widths = [d.textlength(l, font=f) for l in lines]
+    line_h = 46
+    box_w, box_h = max(widths) + 48, line_h * len(lines) + 22
+    x0, y0 = (W - box_w) / 2, H - 42 - box_h
+    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    od = ImageDraw.Draw(overlay)
+    od.rounded_rectangle([x0, y0, x0 + box_w, y0 + box_h], radius=10, fill=(0, 0, 0, 150))
+    for i, (line, w) in enumerate(zip(lines, widths)):
+        od.text(((W - w) / 2, y0 + 10 + i * line_h), line, font=f, fill=(255, 255, 255, 245))
+    return Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
+
+
 def main() -> None:
     global BG
     parser = argparse.ArgumentParser()
@@ -655,10 +732,14 @@ def main() -> None:
                 asyncio.run(synth(sc.narration, mp3))
                 length = duration(mp3) + (2.4 if sc.name == "close" else 0.9)
             print(f"  {sc.name}: {length:.1f}s")
+            cues = [] if args.silent else asyncio.run(sentences(sc.narration))
             lines: list[str] = []
             prev, hold = None, 0.0
             for i in range(int(length * sc.fps)):
                 img = sc.render(i / sc.fps, length)
+                line = subtitle_at(cues, i / sc.fps)
+                if line:
+                    img = draw_subtitle(img, line)
                 sig = img.resize((96, 54)).tobytes()
                 if sig == prev:
                     hold += 1 / sc.fps
