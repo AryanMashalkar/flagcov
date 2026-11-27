@@ -72,16 +72,22 @@ def scan_text(text: str, python: bool = False) -> list[tuple[str, int]]:
 
 
 def changed_flags(base: str, cwd: str | os.PathLike[str] | None = None) -> set[str]:
-    """Flag keys on lines added or removed since ``base`` (e.g. ``origin/main``), per ``git diff``."""
+    """Flags a change touches since ``base`` (e.g. ``origin/main``): keys on added or removed
+    lines, plus every flag read in a file the change modifies."""
     import subprocess
 
-    diff = subprocess.run(
-        ["git", "diff", "--unified=0", f"{base}...HEAD"], cwd=cwd, capture_output=True, text=True, check=True
-    ).stdout
+    def git(*args: str) -> str:
+        return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=True).stdout
+
     keys: set[str] = set()
-    for line in diff.splitlines():
+    for line in git("diff", "--unified=0", f"{base}...HEAD").splitlines():
         if line[:1] in "+-" and not line.startswith(("+++", "---")):
             keys.update(k for k, _ in scan_text(line[1:]))
+    top = Path(git("rev-parse", "--show-toplevel").strip())
+    for name in git("diff", "--name-only", f"{base}...HEAD").splitlines():
+        path = top / name
+        if path.is_file() and path.suffix in EXTENSIONS:
+            keys.update(k for k, _ in scan_text(path.read_text(encoding="utf-8", errors="ignore"), python=path.suffix == ".py"))
     return keys
 
 

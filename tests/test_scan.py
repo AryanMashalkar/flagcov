@@ -60,3 +60,24 @@ Usage:
 real = client.get_boolean_value("real_flag", False)
 '''
     assert scan_text(code, python=True) == [("real_flag", 7)]
+
+
+def test_changed_flags_from_git(tmp_path):
+    import subprocess
+
+    from flagcov.scan import changed_flags
+
+    def git(*a):
+        subprocess.run(["git", *a], cwd=tmp_path, check=True, capture_output=True)
+
+    git("init", "-q", "-b", "main")
+    git("config", "user.email", "t@example.com")
+    git("config", "user.name", "t")
+    (tmp_path / "shop.py").write_text('flow = c.get_string_value("checkout_flow", "x")\nSLOTS = 1\n')
+    (tmp_path / "other.py").write_text('c.get_boolean_value("dark_mode", False)\n')
+    git("add", ".")
+    git("commit", "-qm", "base")
+    git("checkout", "-qb", "feature")
+    (tmp_path / "shop.py").write_text('flow = c.get_string_value("checkout_flow", "x")\nSLOTS = 2\n')
+    git("commit", "-qam", "change")
+    assert changed_flags("main", cwd=tmp_path) == {"checkout_flow"}
