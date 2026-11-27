@@ -149,7 +149,7 @@ FlagCov is built on Flagsmith. Take Flagsmith away and there's nothing to measur
 
 ## Proof it works
 
-- **78 tests**, run on Python 3.10–3.13 on Linux, plus Windows and macOS ([CI](.github/workflows/ci.yml)).
+- **79 tests**, run on Python 3.10–3.13 on Linux, plus Windows and macOS ([CI](.github/workflows/ci.yml)).
 - **Real self-hosted Flagsmith in CI** ([workflow](.github/workflows/selfhosted-e2e.yml)): boots the official Docker image, seeds it through the REST API, fetches the live document, runs the demo with **this repo's own GitHub Action**, and asserts that the report found the untested 10% variant, the segment, the missing flag and the stale flag.
 - **A real pull request** with FlagCov's comment on it: see [the demo PR](https://github.com/AryanMashalkar/flagcov/pulls?q=is%3Apr).
 
@@ -157,7 +157,19 @@ FlagCov is built on Flagsmith. Take Flagsmith away and there's nothing to measur
 
 Flagsmith's API evaluates its own flags through OpenFeature and the Flagsmith provider, reading a committed environment document (`api/integrations/flagsmith/data/environment.json`). That's exactly FlagCov's setup, so the [dogfood workflow](.github/workflows/dogfood-flagsmith.yml) checks out Flagsmith, runs the unit tests around flag-reading code with `--flagcov`, and publishes the report.
 
-<!-- DOGFOOD-RESULTS -->
+**What it found** ([run](https://github.com/AryanMashalkar/flagcov/actions/runs/45968631712)). 690 Flagsmith tests passed with FlagCov on. They read flags 102 times:
+
+| Flag | Value in the committed document | What Flagsmith's tests read | FlagCov says |
+|---|---|---|---|
+| `api_usage_alerting` | **off** | `True`, 7 times | the **off** path is never run |
+| `sdk_metrics_labels` | **off** | `True`, 18 times | the **off** path is never run |
+| `segment_membership_inspection` | **off** | `True`, 23 times | the **off** path is never run |
+| `api_limiting_*`, `api_usage_overage_charges` | on | `True` | ✅ tested |
+| `experimental_flags`, `feature_lifecycle`, `onboarding_quickstart_flow`, `experimentation_warehouse_connection` | off | nothing | not read anywhere in the API code (probably frontend flags) |
+
+So in this slice of the suite, those three flags are only ever tested **switched on**, while the document Flagsmith ships has them **switched off**. That's the configuration an instance falls back to when it isn't connected to Flagsmith's own flag service.
+
+To be fair to Flagsmith: this is a slice of the suite (organisations, auth, segment membership, onboarding, analytics and the Flagsmith integration), not the whole thing, and other tests may well cover those paths. But that's exactly the point. Without a tool like this, nobody can tell.
 
 ## How it works
 
@@ -193,7 +205,7 @@ action.yml         GitHub Action (PR comment, job summary, CI gate)
 examples/demo_shop the demo: a tiny shop with a hidden bug behind a 10% variant
 examples/selfhosted official Flagsmith docker-compose + REST seeding script
 docs/              demo GIF, video script, GIF generator
-tests/             78 tests (unit, pytester end-to-end, xdist, live HTTP)
+tests/             79 tests (unit, pytester end-to-end, xdist, live HTTP)
 ```
 
 ## Contributing
