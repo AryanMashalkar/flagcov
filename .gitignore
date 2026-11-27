@@ -9,3 +9,4 @@ build/
 .coverage
 .selfhosted.env
 environment.live.json
+docs/tools/.voice-cache/
