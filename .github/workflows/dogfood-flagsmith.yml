@@ -35,6 +35,9 @@ jobs:
         working-directory: flagsmith/api
     env:
       DOTENV_OVERRIDE_FILE: .env-ci
+      # Flagsmith's settings only define DATABASES when DATABASE_URL is in the real environment.
+      DATABASE_URL: postgresql://postgres:password@localhost:5432/flagsmith
+      ANALYTICS_DATABASE_URL: postgresql://postgres:password@localhost:5433/analytics
     steps:
       - uses: actions/checkout@v4
         with:
