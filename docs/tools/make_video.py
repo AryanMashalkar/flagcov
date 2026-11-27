@@ -65,14 +65,14 @@ def run_pytest(args: list[str], extra_test: str | None = None) -> list[str]:
     env = {**os.environ, "PYTHONIOENCODING": "utf-8", "COLUMNS": "140"}
     with tempfile.TemporaryDirectory() as tmp:
         if extra_test:
-            (DEMO / "test_zz_video.py").write_text(extra_test, encoding="utf-8")
+            (DEMO / "test_express.py").write_text(extra_test, encoding="utf-8")
         try:
             out = subprocess.run(
                 [sys.executable, "-m", "pytest", "-p", "no:cacheprovider", "--flagcov-out", tmp, *args],
                 cwd=DEMO, capture_output=True, text=True, env=env, encoding="utf-8",
             ).stdout
         finally:
-            (DEMO / "test_zz_video.py").unlink(missing_ok=True)
+            (DEMO / "test_express.py").unlink(missing_ok=True)
     return [re.sub(r"^.*demo_shop[\\/]", "", l.rstrip()) for l in out.splitlines()]
 
 
@@ -90,7 +90,7 @@ def collect() -> dict:
     report = run_pytest(["-q", "--flagcov", "--flagcov-env", "environment.json", "--flagcov-scan", "."])
     start = next(i for i, l in enumerate(report) if "flag coverage (FlagCov)" in l)
     table = [l for l in report[start + 1:] if l.strip() and "passed" not in l]
-    crash = run_pytest(["-q", "--tb=line", "test_zz_video.py"], extra_test=GENERATED)
+    crash = run_pytest(["-q", "--tb=line", "test_express.py"], extra_test=GENERATED)
     crash = [l for l in crash if re.search(r"ZeroDivision|passed|failed", l)][-3:]
     comment = ""
     try:
@@ -310,6 +310,37 @@ def scene_crash(data: dict) -> Callable:
     return render
 
 
+PROOF = ROOT / "docs" / "proof"
+_shots: dict[str, Image.Image] = {}
+
+
+def proof(img: Image.Image, name: str, box: tuple[int, int, int, int], t: float, label: str) -> Image.Image:
+    """Paste a REAL github.com screenshot (docs/proof) into ``box`` with a slow zoom and a 'real' badge."""
+    path = PROOF / name
+    if not path.exists():
+        return img
+    if name not in _shots:
+        _shots[name] = Image.open(path).convert("RGB")
+    shot = _shots[name]
+    x0, y0, x1, y1 = box
+    bw, bh = x1 - x0, y1 - y0
+    zoom = 1.0 + 0.04 * min(t, 6) / 6
+    scale = min(bw / shot.width, bh / shot.height) * zoom
+    sw, sh = int(shot.width * scale), int(shot.height * scale)
+    resized = shot.resize((sw, sh), Image.LANCZOS)
+    cx, cy = (sw - bw) // 2 if sw > bw else 0, 0
+    crop = resized.crop((max(cx, 0), cy, max(cx, 0) + min(bw, sw), cy + min(bh, sh)))
+    d = ImageDraw.Draw(img)
+    px, py = x0 + (bw - crop.width) // 2, y0 + (bh - crop.height) // 2
+    d.rounded_rectangle([px - 10, py - 10, px + crop.width + 10, py + crop.height + 10], radius=14, fill=(48, 54, 66))
+    img.paste(crop, (px, py))
+    f = sans(26, True)
+    w = d.textlength(label, font=f)
+    d.rounded_rectangle([px + crop.width - w - 46, py - 30, px + crop.width + 6, py + 16], radius=22, fill=GREEN)
+    d.text((px + crop.width - w - 22, py - 24), label, font=f, fill=(6, 24, 10))
+    return img
+
+
 SELFHOSTED_STEPS = [
     ("Start official Flagsmith image (docker compose)", "self-hosted, open source"),
     ("Seed through Flagsmith's REST API", "flags · 60/30/10 split · segment · server key"),
@@ -323,20 +354,24 @@ def scene_selfhosted(t: float, total: float) -> Image.Image:
     img, d = canvas()
     center(d, 70, "Not a mock. Real self-hosted Flagsmith, on every push.", sans(52, True), FG)
     for i, (step, detail) in enumerate(SELFHOSTED_STEPS):
-        appear = 0.8 + i * 1.3
+        appear = 0.4 + i * 0.7
         if t < appear:
             continue
         y = 200 + i * 145
         a = ease((t - appear) / 0.5)
         x = 260 + int(60 * (1 - a))
         d.rounded_rectangle([x, y, x + 1400, y + 115], radius=20, fill=(22, 26, 38), outline=(60, 66, 90), width=2)
-        ok = t > appear + 0.7
+        ok = t > appear + 0.4
         d.ellipse([x + 30, y + 30, x + 85, y + 85], fill=GREEN if ok else FAINT)
         if ok:
             d.text((x + 41, y + 26), "✓", font=symbol(44), fill=(8, 30, 12))
         d.text((x + 115, y + 18), step, font=sans(38, True), fill=FG)
         d.text((x + 115, y + 68), detail, font=mono(26), fill=CYAN)
-    if t > 0.8 + 5 * 1.3 + 0.8:
+    if t > 4.8:
+        img, d = canvas()
+        center(d, 40, "The real run, on github.com", sans(48, True), FG)
+        img = proof(img, "selfhosted-run.png", (160, 130, 1760, 920), t - 4.8, "REAL  ·  self-hosted Flagsmith in CI")
+        d = ImageDraw.Draw(img)
         caption(d, "Flagsmith is the source of truth. FlagCov asks the question.")
     return img
 
@@ -368,8 +403,12 @@ def scene_dogfood(t: float, total: float) -> Image.Image:
             d.text((x0, yy), flag, font=mono(34, True), fill=FG)
             d.text((x0 + 760, yy), ship.upper(), font=sans(36, True), fill=AMBER)
             d.text((x0 + 1130, yy), tested, font=sans(36, True), fill=GREEN)
-    if t > 6.5:
+    if t > 6.0:
         caption(d, "Tested only when ON. The defaults Flagsmith ships are OFF.")
+    if t > 8.2:
+        img, d = canvas()
+        center(d, 40, "690 of Flagsmith's own tests, on github.com", sans(48, True), FG)
+        img = proof(img, "dogfood-run.png", (160, 130, 1760, 920), t - 8.2, "REAL  ·  Flagsmith's own test suite")
     return img
 
 
@@ -403,28 +442,12 @@ def md_lines(comment: str) -> list[tuple[str, tuple, int]]:
 
 
 def scene_pr(data: dict) -> Callable:
-    lines = md_lines(data["comment"]) if data["comment"] else []
-
     def render(t: float, total: float) -> Image.Image:
         img, d = canvas()
-        center(d, 50, "Where your team sees it: on every pull request.", sans(50, True), FG)
-        x0, y0, x1, y1 = 160, 140, 1760, 950
-        d.rounded_rectangle([x0, y0, x1, y1], radius=16, fill=(255, 255, 255))
-        d.rounded_rectangle([x0, y0, x1, y0 + 70], radius=16, fill=(246, 248, 250))
-        d.rectangle([x0, y0 + 50, x1, y0 + 70], fill=(246, 248, 250))
-        d.ellipse([x0 + 24, y0 + 14, x0 + 66, y0 + 56], fill=(36, 41, 47))
-        d.text((x0 + 85, y0 + 18), "github-actions  commented  ·  AryanMashalkar/flagcov  #1", font=sans(28, True), fill=(36, 41, 47))
-        y = y0 + 100
-        shown = int(max(0, (t - 0.6) / 0.25))
-        for text, col, size in lines[:shown]:
-            colour = (36, 41, 47) if col == FG else (207, 34, 46)
-            text = text.replace("🚩", "").replace("🟠", "●").replace("🔴", "●").replace("⚠️", "!").replace("❓", "?").replace("🧹", "~").replace("ℹ️", "i")
-            f = sans(size, size > 30)
-            while d.textlength(text, font=f) > x1 - x0 - 90 and len(text) > 10:
-                text = text[:-4] + "…"
-            d.text((x0 + 45, y), text, font=f, fill=colour)
-            y += int(size * 1.75)
-        if t > total * 0.6:
+        center(d, 40, "Where your team sees it: on every pull request.", sans(48, True), FG)
+        img = proof(img, "pr-comment.png", (260, 125, 1660, 930), t, "REAL  ·  PR #1 on github.com")
+        d = ImageDraw.Draw(img)
+        if t > total * 0.55:
             caption(d, "Untested traffic, flag by flag, with the tests to paste.")
         return img
 
@@ -433,9 +456,9 @@ def scene_pr(data: dict) -> Callable:
 
 def scene_close(t: float, total: float) -> Image.Image:
     img, d = canvas()
-    center(d, 230, "Line coverage tells you what your code ran.", sans(60, True), DIM)
+    center(d, 230, "Code coverage tells you what your code ran.", sans(60, True), DIM)
     if t > 2.2:
-        center(d, 330, "Flag coverage tells you what your users will run.", sans(60, True), FG)
+        center(d, 330, "Flag coverage tells you what your users will actually see.", sans(60, True), FG)
     if t > 4.5:
         f = sans(150, True)
         center(d, 470, "FlagCov", f, FG)
@@ -462,7 +485,7 @@ def scene_explain_switch(t: float, total: float) -> Image.Image:
     img, d = canvas()
     center(d, 60, "Feature flags, in 20 seconds", sans(54, True), FG)
     # the app
-    flip = ease((t - 3.2) / 0.6)
+    flip = ease((t - 1.6) / 0.5)
     dark = flip > 0.5
     px, py = 250, 200
     d.rounded_rectangle([px, py, px + 420, py + 720], radius=48, fill=(30, 30, 36), outline=(90, 90, 100), width=4)
@@ -478,14 +501,14 @@ def scene_explain_switch(t: float, total: float) -> Image.Image:
     d.text((800, 330), "dark_mode", font=mono(44, True), fill=FG)
     toggle(d, 830, 400, flip, 1.3)
     d.text((1035, 412), "ON" if dark else "OFF", font=sans(48, True), fill=GREEN if dark else DIM)
-    if t > 1.0:
+    if t > 0.4:
         d.text((760, 560), "A feature flag is a switch", font=sans(40, True), fill=FG)
         d.text((760, 612), "inside your app.", font=sans(40, True), fill=FG)
         d.text((760, 680), "Flip it: the feature changes for real", font=sans(32), fill=DIM)
         d.text((760, 722), "users instantly. No new code shipped.", font=sans(32), fill=DIM)
     # Flagsmith remote
-    if t > 6.0:
-        a = ease((t - 6.0) / 0.6)
+    if t > 3.4:
+        a = ease((t - 3.4) / 0.6)
         rx = 1400 + int(80 * (1 - a))
         d.rounded_rectangle([rx, 220, rx + 420, 860], radius=30, fill=(26, 24, 44), outline=PURPLE, width=4)
         d.text((rx + 40, 250), "Flagsmith", font=sans(52, True), fill=PURPLE)
@@ -533,27 +556,26 @@ def scene_explain_split(t: float, total: float) -> Image.Image:
 NARRATION = {
     "hook": "In twenty twelve, a trading firm called Knight Capital lost four hundred and forty million dollars... in forty-five minutes. "
             "The cause? An old switch in their software got flipped, and it turned on code nobody had tested in years.",
-    "title": "We all check how much of our code is tested. Nobody checks how much of our feature flags are tested. So I built FlagCov.",
-    "explain_switch": "Quick explainer, in case flags are new to you. A feature flag is a switch inside your app. "
-                      "Flip it, and a feature turns on or off for real users, instantly, without shipping new code. "
-                      "Flagsmith is the remote control your team uses to flip those switches.",
-    "explain_split": "And switches can do more than on and off. Imagine a hundred shoppers. Flagsmith shows sixty of them the classic checkout, "
+    "title": "We all check how much of our code is tested. Nobody checks how much of our feature flags are tested. So I built Flag-cov.",
+    "explain_switch": "Quick explainer. A feature flag is a switch inside your app. Flip it in Flagsmith, "
+                      "and real users see the change instantly. No new code shipped.",
+    "explain_split": "Switches can do more than on and off. Imagine a hundred shoppers. Flagsmith shows sixty of them the classic checkout, "
                      "thirty a one-page checkout, and ten a brand new express checkout. ... Here's the catch. "
                      "The tests only tried the versions someone remembered. Nobody ever checked express.",
     "green": "Here's that shop. The tests are green. Everything looks safe.",
-    "reveal": "Now let's turn on FlagCov. It watches which versions the tests actually tried, and compares that with what Flagsmith "
+    "reveal": "Now let's turn on Flag-cov. It watches which versions the tests actually tried, and compares that with what Flagsmith "
               "is really showing customers. ... There it is. Ten percent of real shoppers get express, and no test has ever tried it. "
               "Big business customers get an untested version too. And the code even asks for a switch that doesn't exist.",
-    "crash": "FlagCov doesn't just warn you. It writes the missing test for you. I add one line, and run it. ... "
+    "crash": "Flag-cov doesn't just warn you. It writes the missing test for you. I add one line, and run it. ... "
              "It crashes. One in ten shoppers would have hit this bug, and our green tests never saw it coming.",
-    "selfhosted": "And this isn't a fake setup. Every time I push code, a real Flagsmith server starts up, gets filled with these switches, "
-                  "and FlagCov reads the real settings straight from it.",
+    "selfhosted": "And this isn't a fake setup. Every time I push code, a real, self-hosted Flagsmith server starts up, gets filled with these switches, "
+                  "and Flag-cov reads the real settings straight from it. That's the actual run, on GitHub.",
     "dogfood": "Then I tried it on Flagsmith's own code. Six hundred and ninety of their tests. "
-               "Three switches are only ever tested in the on position, but Flagsmith ships them switched off.",
-    "pr": "For a team, it shows up right on the pull request: which switches the change touches, "
+               "Three switches are only ever tested in the on position. But in the default settings, those same switches are off.",
+    "pr": "For a team, it shows up right on the pull request. This is the real comment: which switches the change touches, "
           "how many real users are untested, and the tests to paste in.",
     "close": "Code coverage tells you what your code ran. Flag coverage tells you what your users will actually see. "
-             "FlagCov. Free, open source, and one pip install away.",
+             "Flag-cov. Free, open source, and one pip install away.",
 }
 
 
@@ -628,7 +650,7 @@ def main() -> None:
             else:
                 mp3 = tmp / f"{sc.name}.mp3"
                 asyncio.run(synth(sc.narration, mp3))
-                length = duration(mp3) + 0.9
+                length = duration(mp3) + (2.4 if sc.name == "close" else 0.9)
             print(f"  {sc.name}: {length:.1f}s")
             lines: list[str] = []
             prev, hold = None, 0.0

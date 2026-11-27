@@ -151,7 +151,7 @@ FlagCov is built on Flagsmith. Take Flagsmith away and there's nothing to measur
 
 - **79 tests**, run on Python 3.10–3.13 on Linux, plus Windows and macOS ([CI](.github/workflows/ci.yml)).
 - **Real self-hosted Flagsmith in CI** ([workflow](.github/workflows/selfhosted-e2e.yml)): boots the official Docker image, seeds it through the REST API, fetches the live document, runs the demo with **this repo's own GitHub Action**, and asserts that the report found the untested 10% variant, the segment, the missing flag and the stale flag.
-- **A real pull request** with FlagCov's comment on it: see [the demo PR](https://github.com/AryanMashalkar/flagcov/pulls?q=is%3Apr).
+- **A real pull request** with FlagCov's comment on it: see [PR #1](https://github.com/AryanMashalkar/flagcov/pull/1), where the comment is posted by CI from a live self-hosted Flagsmith.
 
 ## Dogfooding: FlagCov on Flagsmith's own tests
 
