@@ -1,0 +1,38 @@
+name: Self-hosted Flagsmith dashboard screenshots
+
+# Boots the official open-source Flagsmith image, seeds the demo project, and
+# screenshots the real dashboard (flags, the 60/30/10 split, the segment) for docs and the demo video.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [".github/workflows/dashboard-shots.yml", "docs/tools/capture_dashboard.py", "examples/selfhosted/**"]
+
+permissions:
+  contents: read
+
+jobs:
+  shots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Start self-hosted Flagsmith
+        run: docker compose -f examples/selfhosted/docker-compose.yml up -d
+      - name: Seed the demo project
+        run: python examples/selfhosted/seed.py --api-url http://localhost:8000/api/v1/ --out .selfhosted.env
+      - name: Install Playwright
+        run: |
+          python -m pip install --quiet playwright
+          python -m playwright install --with-deps chromium
+      - name: Screenshot the dashboard
+        run: python docs/tools/capture_dashboard.py --env .selfhosted.env --out dashboard-shots
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dashboard-shots
+          path: dashboard-shots/

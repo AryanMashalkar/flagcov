@@ -133,6 +133,7 @@ def main() -> int:
         fh.write(
             f"FLAGSMITH_API_URL={args.api_url}\nFLAGSMITH_SERVER_KEY={server_key}\nFLAGSMITH_CLIENT_KEY={env_key}\n"
             f"FLAGSMITH_ADMIN_EMAIL={EMAIL}\nFLAGSMITH_ADMIN_PASSWORD={password}\n"
+            f"FLAGSMITH_PROJECT_ID={project}\nFLAGSMITH_CHECKOUT_FEATURE_ID={checkout}\nFLAGSMITH_SEGMENT_ID={segment}\n"
         )
     print(f"Seeded project 'Demo Shop' (environment {env_key}). Keys written to {args.out}")
     return 0
