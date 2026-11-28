@@ -5,7 +5,7 @@ from __future__ import annotations
 from openfeature import api
 from openfeature.evaluation_context import EvaluationContext
 
-EXPRESS_COURIER_SLOTS: dict[str, int] = {"mumbai": 4, "pune": 2}  # no slots configured for other cities yet
+EXPRESS_COURIER_SLOTS: dict[str, int] = {"mumbai": 4, "pune": 2, "bengaluru": 3}  # no slots configured for other cities yet
 
 
 def _ctx(user_id: str, plan: str) -> EvaluationContext:
@@ -23,6 +23,7 @@ def checkout(cart_total: int, user_id: str, city: str = "mumbai", plan: str = "f
         steps = 1
         eta_days = 3
     elif flow == "express":
+        # Express checkout: one step, courier picks up the same day.
         steps = 1
         # Latent bug: cities without express slots divide by zero.
         eta_days = 4 // EXPRESS_COURIER_SLOTS.get(city, 0)
