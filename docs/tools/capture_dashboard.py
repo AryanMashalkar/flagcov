@@ -46,19 +46,21 @@ def main() -> None:
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page(viewport={"width": 1600, "height": 960}, device_scale_factor=2, color_scheme="dark")
+        page.set_default_timeout(60000)
 
         # Log in
-        page.goto(f"{BASE}/login", wait_until="networkidle")
+        page.goto(f"{BASE}/login", wait_until="domcontentloaded")
+        page.locator("input[type=password]").first.wait_for(timeout=90000)
         snap(page, out, "debug-01-login")
         page.locator("input[type=email], input[name=email], input[id*=email i]").first.fill(env["FLAGSMITH_ADMIN_EMAIL"])
         page.locator("input[type=password]").first.fill(env["FLAGSMITH_ADMIN_PASSWORD"])
         page.keyboard.press("Enter")
-        page.wait_for_load_state("networkidle")
+        page.wait_for_load_state("domcontentloaded")
         page.wait_for_timeout(3000)
         snap(page, out, "debug-02-after-login")
 
         # Flags list for the Production environment
-        page.goto(f"{BASE}/project/{project}/environment/{env_key}/features", wait_until="networkidle")
+        page.goto(f"{BASE}/project/{project}/environment/{env_key}/features", wait_until="domcontentloaded")
         page.wait_for_timeout(3000)
         snap(page, out, "flags-list")
 
@@ -80,7 +82,7 @@ def main() -> None:
             snap(page, out, "debug-03-checkout-failed")
 
         # Segments page
-        page.goto(f"{BASE}/project/{project}/segments", wait_until="networkidle")
+        page.goto(f"{BASE}/project/{project}/segments", wait_until="domcontentloaded")
         page.wait_for_timeout(3000)
         snap(page, out, "segments")
         try:
