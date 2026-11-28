@@ -46,7 +46,7 @@ def main() -> None:
     e2e, dogfood = latest_run("selfhosted-e2e.yml"), latest_run("dogfood-flagsmith.yml")
     with sync_playwright() as p:
         browser = p.chromium.launch()
-        page = browser.new_page(viewport={"width": 1500, "height": 860}, device_scale_factor=1.25, color_scheme="dark")
+        page = browser.new_page(viewport={"width": 1500, "height": 860}, device_scale_factor=2.5, color_scheme="dark")
 
         # 1. The FlagCov comment on PR #1
         page.goto(f"https://github.com/{REPO}/pull/1", wait_until="networkidle")
